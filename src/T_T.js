@@ -35,7 +35,7 @@ var T_T = (function()
                  */
                 window["onerror"] = function(message, source, lineno, colno, error) 
                 {
-                        console.log(JSON.stringify(computeStacktrace(error)));
+                        console.log(JSON.stringify(computeStackTrace(error)));
 
                         if (__orig_onerror) {
                                 __orig_onerror.apply(window, arguments);
