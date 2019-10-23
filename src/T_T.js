@@ -52,7 +52,10 @@ var T_T = (function()
 
         /**********************************************************************
          * BUILD THE ERROR EVENT 
+         * Derived from Sentry's tracekit.js, which is derived from Tracekit.
+         * Can probably be factored.
          **********************************************************************/
+
         /* global reference to slice */
         var UNKNOWN_FUNCTION = '?';
         /* Chromium based browsers: Chrome, Brave, new Opera, new Edge */
