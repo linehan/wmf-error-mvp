@@ -1,297 +1,290 @@
+/*
+ * ERRORS
+ * ------
+ *
+ * Errors are captured by replacing window.onerror with our own
+ * custom handler.
+ *
+ * What does this capture? 
+ *
+ *      1.) When a JavaScript runtime error (including syntax errors 
+ *      and exceptions thrown within handlers) occurs, an error event 
+ *      using interface ErrorEvent is fired at window and 
+ *      window.onerror() is invoked (as well as handlers attached by 
+ *      window.addEventListener (not only capturing)).
+ *
+ * What does this not capture?
+ *
+ *      2.) When a resource (such as an <img> or <script>) fails to 
+ *      load, an error event using interface Event is fired at the 
+ *      element that initiated the load, and the onerror() handler 
+ *      on the element is invoked. These error events DO NOT bubble 
+ *      up to window, but (at least in Firefox) can be handled with 
+ *      a window.addEventListener configured with useCapture set 
+ *      to True.
+ *
+ * NOTE
+ * For historical reasons, different arguments are passed to 
+ * window.onerror and element.onerror handlers (as well as on 
+ * error-type window.addEventListener handlers).
+ *
+ *      window.onerror = function(message, source, lineno, colno, error)
+ *      element.onerror = function(event) 
+ *
+ *
+ * STACK TRACES
+ * ------------
+ *
+ * Stack traces are formatted differently in each browser, and get 
+ * stored in either:
+ *
+ *      Error.stacktrace, or 
+ *      Error.stack. 
+ *
+ * NEITHER of these is standard, and NONE OF THIS is on any standards 
+ * track. Still, almost all browsers implement it some way or another.
+ *
+ * Example (Chrome):
+ * 
+ *      Error: hi
+ *          at three (test.js:3)
+ *          at two (test.js:8)
+ *          at one (test.js:13)
+ *          at HTMLButtonElement.<anonymous> (test.js:20)
+ *
+ * This message was triggered by clicking a button, which called one(), 
+ * which called two(), which called three(), which threw an Error.
+ *
+ * From a stack trace we need to extract, for each stack frame:
+ *
+ *      1: url of script containing function
+ *      2: function name
+ *      3: function arguments (if any)
+ *      4: line number
+ *      5: column number
+ *
+ * To do this, we use some regular expressions. They are written in such a 
+ * way that only one can match, so no additional browser detection is 
+ * necessary.
+ *
+ * FIXME
+ * Should the correct browser be cached?
+ */
 var T_T = (function()
 {
-        /**********************************************************************
-         * LOAD THE THING
-         **********************************************************************/
-        function initialize()
+        function replace_window_onerror_handler()
         {
-                var __orig_onerror = window["onerror"];
-                /*
-                 * MDN: 
-                 * 1.) When a JavaScript runtime error (including syntax errors and 
-                 * exceptions thrown within handlers) occurs, an error event using 
-                 * interface ErrorEvent is fired at window and window.onerror() is 
-                 * invoked (as well as handlers attached by window.addEventListener 
-                 * (not only capturing)).
-                 *
-                 * 2.) When a resource (such as an <img> or <script>) fails to load, 
-                 * an error event using interface Event is fired at the element that 
-                 * initiated the load, and the onerror() handler on the element is 
-                 * invoked. These error events do not bubble up to window, but 
-                 * (at least in Firefox) can be handled with a window.addEventListener 
-                 * configured with useCapture set to True.
-                 *
-                 * MDN: For historical reasons, different arguments are passed to 
-                 * window.onerror and element.onerror handlers (as well as on 
-                 * error-type window.addEventListener handlers).
-                 *
-                 *      window.onerror = function(message, source, lineno, colno, error)
-                 *      element.onerror = function(event) 
-                 *
-                 * MDN: If an error occurs in a <script> loaded from a different
-                 * origin, the details of the error are not provided to prevent
-                 * leakage of information. It can be worked around in some browsers.
-                 * See: https://developer.mozilla.org/en-US/docs/Web/API/GlobalEventHandlers/onerror#Notes
-                 */
-                window["onerror"] = function(message, source, lineno, colno, error) 
-                {
-                        console.log(JSON.stringify(computeStackTrace(error)));
+                /* Cache any original handler, and trigger after ours. */
+                var original_handler = window.onerror; 
 
-                        if (__orig_onerror) {
-                                __orig_onerror.apply(window, arguments);
+                /*
+                 * Invoked when an runtime error occurs.
+                 *
+                 * @msg   : <string> error message 
+                 * @src   : <string> URL of script that raised error 
+                 * @lineno: <number> Line number where error occurred 
+                 * @colno : <number> Column number where error occurred 
+                 * @error : <Error> Error object 
+                 * Return : <bool> if TRUE, prevent firing of default handler.
+                 */
+                window.onerror = function(msg, source, lineno, colno, error) 
+                {
+                        console.log(JSON.stringify(format_error_event(error)));
+
+                        if (original_handler) {
+                                original_handler.apply(window, arguments);
                         }
 
-                        /* 
-                         * returning TRUE will effectively 'handle' the error
-                         * and prevent ugly messages on console about unhandled
-                         * exceptions.
-                         */
                         return true;
                 }
         }
 
-        /**********************************************************************
-         * BUILD THE ERROR EVENT 
-         * Derived from Sentry's tracekit.js, which is derived from Tracekit.
-         * Can probably be factored.
-         **********************************************************************/
-
-        /* global reference to slice */
-        var UNKNOWN_FUNCTION = '?';
-        /* Chromium based browsers: Chrome, Brave, new Opera, new Edge */
+        /* Chromium-based browsers: Chrome, Brave, new Opera, new Edge */
         var chrome = /^\s*at (?:(.*?) ?\()?((?:file|https?|blob|chrome-extension|native|eval|webpack|<anonymous>|[-a-z]+:|\/).*?)(?::(\d+))?(?::(\d+))?\)?\s*$/i;
-        /*
-         * gecko regex: `(?:bundle|\d+\.js)`: `bundle` is for react native, `\d+\.js` also but specifically for ram bundles because it
-         * generates filenames without a prefix like `file://` the filenames in the stacktrace are just 42.js
-         * We need this specific case for now because we want no other regex to match.
-         */
         var gecko = /^\s*(.*?)(?:\((.*?)\))?(?:^|@)?((?:file|https?|blob|chrome|webpack|resource|moz-extension).*?:\/.*?|\[native code\]|[^@]*(?:bundle|\d+\.js))(?::(\d+))?(?::(\d+))?\s*$/i;
         var winjs = /^\s*at (?:((?:\[object object\])?.+) )?\(?((?:file|ms-appx|https?|webpack|blob):.*?):(\d+)(?::(\d+))?\)?\s*$/i;
         var geckoEval = /(\S+) line (\d+)(?: > eval line \d+)* > eval/i;
         var chromeEval = /\((\S*)(?::(\d+))(?::(\d+))\)/;
+        var opera10 = / line (\d+).*script (?:in )?(\S+)(?:: in function (\S+))?$/i;
+        var opera11 = / line (\d+), column (\d+)\s*(?:in (?:<anonymous function: ([^>]+)>|([^\)]+))\((.*)\))? in (.*):\s*$/i;
 
-        /*
-         * JL: 'ex' means 'Exception'
-         */
-        function computeStackTrace(ex) {
-                let stack = null;
-                var popSize = ex && ex.framesToPop;
-                /*
-                 * JL:
-                 * Error.stacktrace - used by Opera
-                 * Error.stack      - used by everything else
-                 */
-                try {
-                         /*
-                          * This must be tried first because Opera 10 *destroys*
-                          * its stacktrace property if you try to access the stack
-                          * property first!!
-                          */
-                        stack = computeStackTraceFromStacktraceProp(ex);
-                        if (stack) {
-                                return popFrames(stack, popSize);
-                        }
-                } catch (e) {
-                        /* no-empty */
-                }
-            
-                try {
-                        stack = computeStackTraceFromStackProp(ex);
-                        if (stack) {
-                                return popFrames(stack, popSize);
-                        }
-                } catch (e) {
-                        /* no-empty */
-                }
-
-                /* JDL: This is the proto-event right here. */
-                return {
-                        message: extractMessage(ex),
-                        name: ex && ex.name,
-                        stack: [],
-                        failed: true,
-                };
-        }
-
-        function computeStackTraceFromStackProp(ex) 
-        {
-                if (!ex || !ex.stack) {
-                        return null;
-                }
-
-                var stack = [];
-                var lines = ex.stack.split('\n');
-
-                let isEval;
-                let submatch;
-                let parts;
-                let element;
-
-                for (let i = 0; i < lines.length; ++i) {
-                        if ((parts = chrome.exec(lines[i]))) {
-                                /* JL: This is disgusting ?? */
-                                var isNative = parts[2] && parts[2].indexOf('native') === 0; // start of line
-                                /* JL: This is disgusting ?? */
-                                isEval = parts[2] && parts[2].indexOf('eval') === 0; // start of line
-
-                                if (isEval && (submatch = chromeEval.exec(parts[2]))) {
-                                        // throw out eval line/column and use top-most line/column number
-                                        parts[2] = submatch[1]; // url
-                                        parts[3] = submatch[2]; // line
-                                        parts[4] = submatch[3]; // column
-                                }
-                                element = {
-                                        url: parts[2],
-                                        func: parts[1] || UNKNOWN_FUNCTION,
-                                        args: isNative ? [parts[2]] : [],
-                                        line: parts[3] ? +parts[3] : null,
-                                        column: parts[4] ? +parts[4] : null,
-                                };
-                        } else if ((parts = winjs.exec(lines[i]))) {
-                                element = {
-                                        url: parts[2],
-                                        func: parts[1] || UNKNOWN_FUNCTION,
-                                        args: [],
-                                        line: +parts[3],
-                                        column: parts[4] ? +parts[4] : null,
-                                };
-                        } else if ((parts = gecko.exec(lines[i]))) {
-                                isEval = parts[3] && parts[3].indexOf(' > eval') > -1;
-
-                                if (isEval && (submatch = geckoEval.exec(parts[3]))) {
-                                        /* throw out eval line/column and use top-most line number */
-                                        parts[1] = parts[1] || `eval`;
-                                        parts[3] = submatch[1];
-                                        parts[4] = submatch[2];
-                                        parts[5] = ''; // no column when eval
-                                } else if (i === 0 && !parts[5] && ex.columnNumber !== void 0) {
-                                        /* 
-                                         * FireFox uses this awesome columnNumber property for its top frame
-                                         * Also note, Firefox's column number is 0-based and everything else expects 1-based,
-                                         * so adding 1
-                                         * NOTE: this hack doesn't work if top-most frame is eval
-                                         */
-                                        stack[0].column = ex.columnNumber + 1;
-                                }
-                                element = {
-                                        url: parts[3],
-                                        func: parts[1] || UNKNOWN_FUNCTION,
-                                        args: parts[2] ? parts[2].split(',') : [],
-                                        line: parts[4] ? +parts[4] : null,
-                                        column: parts[5] ? +parts[5] : null,
-                                };
-                        } else {
-                                continue;
-                        }
-                
-                        if (!element.func && element.line) {
-                                element.func = UNKNOWN_FUNCTION;
-                        }
-
-                        stack.push(element);
-                }
-
-                if (!stack.length) {
-                        return null;
-                }
-
-                return {
-                        message: extractMessage(ex),
-                        name: ex.name,
-                        stack,
-                };
-        }
-
-        function computeStackTraceFromStacktraceProp(ex) 
-        {
-                if (!ex || !ex.stacktrace) {
-                        return null;
-                }
-
-                /*
-                 * Access and store the stacktrace property before doing ANYTHING
-                 * else to it because Opera is not very good at providing it
-                 * reliably in other circumstances.
-                 */
-                var stacktrace = ex.stacktrace;
-                var opera10Regex = / line (\d+).*script (?:in )?(\S+)(?:: in function (\S+))?$/i;
-                var opera11Regex = / line (\d+), column (\d+)\s*(?:in (?:<anonymous function: ([^>]+)>|([^\)]+))\((.*)\))? in (.*):\s*$/i;
-                var lines = stacktrace.split('\n');
-                var stack = [];
-
-                let parts;
-
-                for (let line = 0; line < lines.length; line += 2) {
-                        let element = null;
-
-                        if ((parts = opera10Regex.exec(lines[line]))) {
-                                element = {
-                                        url: parts[2],
-                                        func: parts[3],
-                                        args: [],
-                                        line: +parts[1],
-                                        column: null,
-                                };
-                        } else if ((parts = opera11Regex.exec(lines[line]))) {
-                                element = {
-                                        url: parts[6],
-                                        func: parts[3] || parts[4],
-                                        args: parts[5] ? parts[5].split(',') : [],
-                                        line: +parts[1],
-                                        column: +parts[2],
-                                };
-                        }
-
-                        if (element) {
-                                if (!element.func && element.line) {
-                                        element.func = UNKNOWN_FUNCTION;
-                                }
-                                stack.push(element);
-                        }
-                }
-
-                if (!stack.length) {
-                        return null;
-                }
-
-                return {
-                        message: extractMessage(ex),
-                        name: ex.name,
-                        stack,
-                };
-        }
-
-        /** Remove N number of frames from the stack */
-        function popFrames(stacktrace, popSize) 
-        {
-                try {
-                        return Object.assign(Object.assign({}, stacktrace), { stack: stacktrace.stack.slice(popSize) });
-                } catch (e) {
-                        return stacktrace;
-                }
-        }
+        /* Used as string value of any unknown function */ 
+        var UNKNOWN_FUNCTION = '?';
 
         /**
-         * There are cases where stacktrace.message is an Event object
-         * https://github.com/getsentry/sentry-javascript/issues/1949
-         * In this specific case we try to extract stacktrace.message.error.message
+         * Compute a normalized stack trace and format the error event.
+         *
+         * @error : Error object
+         * @return: object
          */
-        function extractMessage(ex) 
+        function format_error_event(err) 
         {
-                var message = ex && ex.message;
-                
-                if (!message) {
-                        return 'No error message';
+                var stack = [];
+                var message = "No error message";
+
+                try {
+                        stack = get_normalized_stack_trace(err);
+                } catch (e) {
+                        /* Nothin' */
                 }
 
-                if (message.error && typeof message.error.message === 'string') {
-                        return message.error.message;
+                if (err && err.message && typeof err.message === "string") {
+                        message = err.message;
+                }
+            
+                return {
+                        message: message
+                        name: err && err.name,
+                        stack: stack,
+                };
+        }
+
+        function get_normalized_stack_trace(error) 
+        {
+                if (!error) {
+                        return null;
                 }
 
-                return message;
+                var stack = [];
+
+                if (error.stacktrace) {
+
+                        /* Store this because Opera is insane */
+                        var stacktrace = error.stacktrace;
+                        var line = stacktrace.split('\n');
+                        var part;
+
+                        for (var i=0; i<line.length; i+=2) {
+                                var frame = null;
+
+                                if ((part = opera10.exec(line[i]))) {
+                                        frame = {
+                                                url: part[2],
+                                                func: part[3],
+                                                args: [],
+                                                line: +part[1],
+                                                column: null,
+                                        };
+                                } else if ((part = opera11.exec(line[i]))) {
+                                        frame = {
+                                                url: part[6],
+                                                func: part[3] || part[4],
+                                                args: part[5] ? part[5].split(',') : [],
+                                                line: +part[1],
+                                                column: +part[2],
+                                        };
+                                }
+
+                                if (frame !== null) {
+                                        if (!frame.func && frame.line) {
+                                                frame.func = UNKNOWN_FUNCTION;
+                                        }
+                                        stack.push(frame);
+                                }
+                        }
+
+                } else if (error.stack) {
+
+                        var line = error.stack.split('\n');
+                        
+                        var submatch;
+                        var part;
+
+                        for (var i=0; i<line.length; ++i) {
+                                var frame = null;
+
+                                if ((part = chrome.exec(line[i]))) {
+                                        var isNative = part[2] && part[2].indexOf('native') === 0; 
+                                        var isEval = part[2] && part[2].indexOf('eval') === 0;
+
+                                        if (isEval && (submatch = chromeEval.exec(part[2]))) {
+                                                /*
+                                                 * throw out eval line/column 
+                                                 * and use top-most line/column 
+                                                 * number
+                                                 */
+                                                part[2] = submatch[1]; // url
+                                                part[3] = submatch[2]; // line
+                                                part[4] = submatch[3]; // column
+                                        }
+
+                                        frame = {
+                                                url: part[2],
+                                                func: part[1] || UNKNOWN_FUNCTION,
+                                                args: isNative ? [part[2]] : [],
+                                                line: part[3] ? +part[3] : null,
+                                                column: part[4] ? +part[4] : null,
+                                        };
+                                } else if ((part = winjs.exec(line[i]))) {
+                                        frame = {
+                                                url: part[2],
+                                                func: part[1] || UNKNOWN_FUNCTION,
+                                                args: [],
+                                                line: +part[3],
+                                                column: part[4] ? +part[4] : null,
+                                        };
+                                } else if ((part = gecko.exec(line[i]))) {
+                                        var isEval = part[3] && part[3].indexOf(' > eval') > -1;
+
+                                        if (isEval && (submatch = geckoEval.exec(part[3]))) {
+                                                /* 
+                                                 * throw out eval line/column 
+                                                 * and use top-most line number 
+                                                 */
+                                                part[1] = part[1] || `eval`;
+                                                part[3] = submatch[1];
+                                                part[4] = submatch[2];
+                                                part[5] = ''; // no column when eval
+                                        } else if (i === 0 && !part[5] && error.columnNumber !== void 0) {
+                                                /* JDL: void 0 is an ancient way of getting undefined */
+
+                                                /* 
+                                                 * FireFox uses this awesome 
+                                                 * columnNumber property for 
+                                                 * its top frame
+                                                 *
+                                                 * Also note, Firefox's column 
+                                                 * number is 0-based and 
+                                                 * everything else expects 
+                                                 * 1-based, so adding 1.
+                                                 *
+                                                 * NOTE: this hack doesn't work 
+                                                 * if top-most frame is eval
+                                                 */
+                                                stack[0].column = error.columnNumber + 1;
+                                        }
+                                        frame = {
+                                                url: part[3],
+                                                func: part[1] || UNKNOWN_FUNCTION,
+                                                args: part[2] ? part[2].split(',') : [],
+                                                line: part[4] ? +part[4] : null,
+                                                column: part[5] ? +part[5] : null,
+                                        };
+                                } else {
+                                        /* JDL: Not sure why continue here. */
+                                        continue;
+                                }
+
+                                if (!frame.func && frame.line) {
+                                        frame.func = UNKNOWN_FUNCTION;
+                                }
+
+                                stack.push(frame);
+                        }
+                }
+
+                if (!stack.length) {
+                        return null;
+                }
+
+                return {
+                        message: extractMessage(error),
+                        name: error.name,
+                        stack,
+                };
         }
 
         return {
-                "initialize": initialize,
+                "replace_window_onerror_handler": replace_window_onerror_handler,
         };
 })();
