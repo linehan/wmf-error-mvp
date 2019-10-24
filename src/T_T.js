@@ -133,7 +133,7 @@ var T_T = (function()
                 }
             
                 return {
-                        message: message
+                        message: message,
                         name: err && err.name,
                         stack: stack,
                 };
