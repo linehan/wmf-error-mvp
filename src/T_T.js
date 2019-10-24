@@ -115,7 +115,7 @@ var T_T = (function()
          * Compute a normalized stack trace and format the error event.
          *
          * @error : Error object
-         * @return: object
+         * @return: Object
          */
         function format_error_event(err) 
         {
@@ -139,16 +139,17 @@ var T_T = (function()
                 };
         }
 
+        /**
+         * Compute normalized stack trace from Error.stack or Error.stacktrace
+         *
+         * @error : Error object
+         * @return: Array of stack frame objects.
+         */
         function get_normalized_stack_trace(error) 
         {
-                if (!error) {
-                        return null;
-                }
-
                 var stack = [];
 
-                if (error.stacktrace) {
-
+                if (error && error.stacktrace) {
                         /* Store this because Opera is insane */
                         var stacktrace = error.stacktrace;
                         var line = stacktrace.split('\n');
@@ -182,11 +183,8 @@ var T_T = (function()
                                         stack.push(frame);
                                 }
                         }
-
-                } else if (error.stack) {
-
+                } else if (error && error.stack) {
                         var line = error.stack.split('\n');
-                        
                         var submatch;
                         var part;
 
@@ -273,15 +271,7 @@ var T_T = (function()
                         }
                 }
 
-                if (!stack.length) {
-                        return null;
-                }
-
-                return {
-                        message: extractMessage(error),
-                        name: error.name,
-                        stack,
-                };
+                return stack;
         }
 
         return {
