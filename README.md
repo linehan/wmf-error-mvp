@@ -1,5 +1,5 @@
 # wmf-error-mvp
-Bare requirements for client-side error logging library. Minified size is ~2.5Kb, but could be reduced by factoring the Tracekit implementation. Almost everything was thrown away including
+Bare requirements for client-side error logging library. Minified size is ~2.1Kb, but could be reduced by factoring the Tracekit implementation. Almost everything was thrown away including
 - Synthetic events
 - Promise rejection handling
 - Events from strings, plain objects, etc
