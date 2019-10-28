@@ -131,10 +131,12 @@ var T_T = (function()
                 if (err && err.message && typeof err.message === "string") {
                         message = err.message;
                 }
+
+                var datetime = new Date();
             
                 return {
 	                meta: {
-                                dt: Date.now(),
+                                dt: datetime.toISOString(),
                                 stream: "client-runtime-error",
                         },
                         type: Object.prototype.toString.call(err),
