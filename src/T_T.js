@@ -136,7 +136,7 @@ var T_T = (function()
             
                 return {
 	                meta: {
-                                dt: datetime.toISOString(),
+                                dt: Date.now().toISOString(),
                                 stream: "client-runtime-error",
                         },
                         type: Object.prototype.toString.call(err),
