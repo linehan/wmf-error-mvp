@@ -116,6 +116,53 @@ var T_T = (function()
          *
          * @error : Error object
          * @return: Object
+         *
+         * NOTE
+         * The schema is:
+         title: client/error
+description: An error generated in a client runtime
+$id: /client/error/1.0.0
+$schema: http://json-schema.org/draft-07/schema#
+type: object
+allOf:
+  - $ref: /common/1.0.0#
+  - properties:
+      type:
+        type: string
+        description: Type of error raised, e.g. an exception class.
+      message:
+        type: string
+        description: A message explaining what happened.
+      url:
+        type: string
+        description: URL of the resource where the error was raised.
+      user_agent:
+        type: string
+        maxLength: 800
+        description: Client user agent string.
+      stack_trace:
+        type: string
+        description: Stack trace string.
+      tags:
+        type: object
+        additionalProperties:
+          type: string
+        description: |
+          Arbitrary extra data. Typically includes:
+          - version: MediaWiki branch name
+          - wiki: wiki ID
+          - skin: skin name
+          - user_language: user language
+          - action: action (e.g. view, edit)
+          - namespace: namespace where the error occured
+          - page_title: title of page where the error occured
+          - user_groups: comma-separated list of user groups
+          - debug: truthy when ResourceLoader debug mode was enabled
+    required:
+      - type
+      - message
+      - url
+      - user_agent`*
          */
         function format_error_event(err) 
         {
@@ -133,9 +180,26 @@ var T_T = (function()
                 }
             
                 return {
+	                meta: {
+                                dt: Date.now()
+                                stream: "client-runtime-error",
+                        }        
+                        type: Object.prototype.toString.call(err),
                         message: message,
-                        name: err && err.name,
-                        stack: stack,
+			url: window.location.href,
+                        user_agent: navigator.userAgent,
+                        stack_trace: stack
+                        tags: {
+                                //version:
+                                //wiki:
+                                //skin:
+                                //user_language:
+                                //action:
+                                //namespace:
+                                //page_title:
+                                //user_groups:
+                                //debug:
+                        }
                 };
         }
 
@@ -149,6 +213,11 @@ var T_T = (function()
         {
                 var stack = [];
 
+                /*
+                 * This has to come first because if you access Error.stack
+                 * before Error.stacktrace, Opera 10/11 will inexplicably
+                 * destroy Error.stacktrace.
+                 */
                 if (error && error.stacktrace) {
                         /* Store this because Opera is insane */
                         var stacktrace = error.stacktrace;
