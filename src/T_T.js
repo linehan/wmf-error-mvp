@@ -136,7 +136,7 @@ var T_T = (function()
 	                meta: {
                                 dt: Date.now(),
                                 stream: "client-runtime-error",
-                        }        
+                        },
                         type: Object.prototype.toString.call(err),
                         message: message,
 			url: window.location.href,
